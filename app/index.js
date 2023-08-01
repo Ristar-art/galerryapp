@@ -5,7 +5,6 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system';
-import * as DocumentPicker from 'expo-document-picker';
 
 const db = SQLite.openDatabase('gallery.db');
 
@@ -36,6 +35,13 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    // Open or create the database and create the "photos" table if it doesn't exist
+    db.transaction(tx => {
+      tx.executeSql(
+        'CREATE TABLE IF NOT EXISTS photos (id INTEGER PRIMARY KEY AUTOINCREMENT, uri TEXT NOT NULL)'
+      );
+    });
+
     // Fetch all saved photos from the SQLite database
     db.transaction(tx => {
       tx.executeSql(
@@ -54,41 +60,43 @@ export default function Page() {
   }, []);
 
   const handleTakePic = async () => {
-    let options = {
-      quality: 1,
-      base64: true,
-      exif: false
-    };
+    if (!cameraRef.current) return;
 
-    let newPhoto = await cameraRef.current.takePictureAsync(options);
-    setPhoto(newPhoto);
+    let photoData = await cameraRef.current.takePictureAsync({ base64: true });
 
-    // Save the picture's link to SQLite database
+    // Save the photo as a file in the device's file system
+    const filename = FileSystem.documentDirectory + Date.now() + '.jpg';
+    await FileSystem.writeAsStringAsync(filename, photoData.base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    // Save the file path (URI) to the SQLite database
     db.transaction(tx => {
       tx.executeSql(
         'INSERT INTO photos (uri) VALUES (?)',
-        [newPhoto.uri],
+        [filename],
         (_, result) => console.log('Photo saved to database'),
         (_, error) => console.error('Error saving photo:', error)
       );
     });
 
-    setShowGallery(true);
+    setPhoto({ uri: filename });
+    setShowGallery(false);
+    setShowCamera(false);
   };
 
   const handleSavePhoto = () => {
     MediaLibrary.saveToLibraryAsync(photo.uri).then(() => {
       setPhoto(undefined);
-      setShowGallery(false);
     });
   };
 
   const handleDiscardPhoto = () => {
     setPhoto(undefined);
-    setShowGallery(false);
   };
 
   const handleShowCamera = () => {
+    setPhoto(undefined);
     setShowCamera(true);
     setShowGallery(false);
   };
@@ -104,47 +112,55 @@ export default function Page() {
     return <Text>Permission for camera not granted. Please change this in settings.</Text>;
   }
 
-  if (showGallery) {
-    return (
-      <View style={styles.container}>
-        <FlatList
-          data={photosList}
-          keyExtractor={(item, index) => index.toString()}
-          renderItem={({ item }) => <Image style={styles.galleryImage} source={{ uri: item }} />}
-        />
-      </View>
-    );
-  }
+  return (
+    <View style={styles.container}>
+      {showCamera && (
+        <Camera style={styles.cameraContainer} ref={cameraRef}>
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.takePicButton} onPress={handleTakePic}>
+              <Text style={styles.buttonText}>Take Pic</Text>
+            </TouchableOpacity>
+          </View>
+        </Camera>
+      )}
 
-  if (photo) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <Image style={styles.preview} source={{ uri: photo.uri }} />
-        {hasMediaLibraryPermission ? <Button title="Save" onPress={handleSavePhoto} /> : undefined}
-        <Button title="Discard" onPress={handleDiscardPhoto} />
-      </SafeAreaView>
-    );
-  }
-
-  if (showCamera) {
-    return (
-      <Camera style={styles.container} ref={cameraRef}>
+      {!showCamera && !showGallery && (
         <View style={styles.buttonContainer}>
-          <Button title="Take Pic" onPress={handleTakePic} />
+          <Button title="Open Camera" onPress={handleShowCamera} />
         </View>
+      )}
+
+      {photo && !showGallery && (
+        <View style={styles.photoContainer}>
+          <Image style={styles.preview} source={{ uri: photo.uri }} />
+          <View style={styles.buttonContainer}>
+            {hasMediaLibraryPermission && (
+              <Button title="Save" onPress={handleSavePhoto} />
+            )}
+            <Button title="Discard" onPress={handleDiscardPhoto} />
+          </View>
+        </View>
+      )}
+
+      {!showCamera && (
         <TouchableOpacity style={styles.galleryButton} onPress={handleOpenGallery}>
           <Text>Gallery</Text>
         </TouchableOpacity>
-      </Camera>
-    );
-  }
+      )}
 
-  return (
-    <View style={styles.container}>
-      <Button title="Open Camera" onPress={handleShowCamera} />
-      <TouchableOpacity style={styles.galleryButton} onPress={handleOpenGallery}>
-        <Text>Gallery</Text>
-      </TouchableOpacity>
+      {showGallery && (
+        <View style={styles.galleryContainer}>
+          <FlatList
+            data={photosList}
+            keyExtractor={(item, index) => index.toString()}
+            renderItem={({ item }) => (
+              <TouchableOpacity onPress={() => setPhoto({ uri: item })}>
+                <Image style={styles.galleryImage} source={{ uri: item }} />
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -155,9 +171,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  cameraContainer: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
   buttonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  takePicButton: {
     backgroundColor: '#fff',
-    alignSelf: 'flex-end'
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  buttonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   galleryButton: {
     position: 'absolute',
@@ -167,14 +202,21 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 5,
   },
-  preview: {
+  galleryContainer: {
+    flex: 1,
     alignSelf: 'stretch',
-    flex: 1
   },
   galleryImage: {
     width: 150,
     height: 150,
     margin: 5,
     resizeMode: 'cover',
+  },
+  photoContainer: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+  preview: {
+    flex: 1,
   },
 });
