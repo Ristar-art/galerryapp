@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, Button, Image, TouchableOpacity, FlatList } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, Image, TouchableOpacity, FlatList } from 'react-native';
 import { Camera } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
@@ -85,12 +85,6 @@ export default function Page() {
     setShowCamera(false);
   };
 
-  const handleSavePhoto = () => {
-    MediaLibrary.saveToLibraryAsync(photo.uri).then(() => {
-      setPhoto(undefined);
-    });
-  };
-
   const handleDiscardPhoto = () => {
     setPhoto(undefined);
   };
@@ -104,6 +98,50 @@ export default function Page() {
   const handleOpenGallery = () => {
     setShowGallery(true);
     setShowCamera(false);
+  };
+
+  const handleImagePress = (item) => {
+    setPhoto({ uri: item });
+    setShowGallery(false);
+    setShowCamera(false);
+  };
+
+  const handleDeletePhoto = (item) => {
+    // Delete the photo from the file system
+    FileSystem.deleteAsync(item)
+      .then(() => {
+        console.log('Photo deleted:', item);
+        // Remove the photo from the SQLite database
+        db.transaction(tx => {
+          tx.executeSql(
+            'DELETE FROM photos WHERE uri = ?',
+            [item],
+            (_, result) => console.log('Photo deleted from database'),
+            (_, error) => console.error('Error deleting photo from database:', error)
+          );
+        });
+        // Fetch updated list of photos
+        db.transaction(tx => {
+          tx.executeSql(
+            'SELECT * FROM photos',
+            [],
+            (_, result) => {
+              const { rows } = result;
+              if (rows && rows.length > 0) {
+                const photos = rows._array.map(item => item.uri);
+                setPhotosList(photos);
+              } else {
+                setPhotosList([]);
+              }
+            },
+            (_, error) => console.error('Error fetching photos:', error)
+          );
+        });
+        setPhoto(undefined);
+      })
+      .catch(error => {
+        console.error('Error deleting photo:', error);
+      });
   };
 
   if (hasCameraPermission === null || hasMediaLibraryPermission === null || location === null) {
@@ -124,43 +162,36 @@ export default function Page() {
         </Camera>
       )}
 
-      {!showCamera && !showGallery && (
-        <View style={styles.buttonContainer}>
-          <Button title="Open Camera" onPress={handleShowCamera} />
-        </View>
-      )}
-
       {photo && !showGallery && (
         <View style={styles.photoContainer}>
           <Image style={styles.preview} source={{ uri: photo.uri }} />
-          <View style={styles.buttonContainer}>
-            {hasMediaLibraryPermission && (
-              <Button title="Save" onPress={handleSavePhoto} />
-            )}
-            <Button title="Discard" onPress={handleDiscardPhoto} />
+          <View style={styles.buttonRow}>
+            <TouchableOpacity style={[styles.button, styles.discardButton]} onPress={handleDiscardPhoto}>
+              <Text style={styles.buttonText}>Discard</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.button, styles.deleteButton]} onPress={() => handleDeletePhoto(photo.uri)}>
+              <Text style={styles.buttonText}>Delete</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
 
-      {!showCamera && (
-        <TouchableOpacity style={styles.galleryButton} onPress={handleOpenGallery}>
-          <Text>Gallery</Text>
-        </TouchableOpacity>
-      )}
+      <View style={styles.galleryContainer}>
+        <FlatList
+          data={photosList}
+          keyExtractor={(item, index) => index.toString()}
+          renderItem={({ item }) => (
+            <TouchableOpacity onPress={() => handleImagePress(item)}>
+              <Image style={styles.galleryImage} source={{ uri: item }} />
+            </TouchableOpacity>
+          )}
+          horizontal // Set the FlatList to scroll horizontally
+        />
+      </View>
 
-      {showGallery && (
-        <View style={styles.galleryContainer}>
-          <FlatList
-            data={photosList}
-            keyExtractor={(item, index) => index.toString()}
-            renderItem={({ item }) => (
-              <TouchableOpacity onPress={() => setPhoto({ uri: item })}>
-                <Image style={styles.galleryImage} source={{ uri: item }} />
-              </TouchableOpacity>
-            )}
-          />
-        </View>
-      )}
+      <TouchableOpacity style={styles.customButton} onPress={handleShowCamera}>
+        <Text style={styles.buttonText}>Open Camera</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -218,5 +249,28 @@ const styles = StyleSheet.create({
   },
   preview: {
     flex: 1,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  button: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    width: '30%',
+  },
+  discardButton: {
+    backgroundColor: 'lightgray',
+  },
+  deleteButton: {
+    backgroundColor: 'red',
+  },
+  customButton: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
   },
 });
