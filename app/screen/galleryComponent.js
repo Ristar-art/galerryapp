@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Image, TouchableOpacity, FlatList, Text, Modal } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system';
 
@@ -12,8 +12,7 @@ const GalleryComponent = () => {
   const [photo, setPhoto] = useState();
   const [photosList, setPhotosList] = useState([]);
 
-  useEffect(() => {
-    // Fetch all saved photos from the SQLite database
+  const fetchPhotosFromDatabase = () => {
     db.transaction(tx => {
       tx.executeSql(
         'SELECT * FROM photos',
@@ -21,20 +20,27 @@ const GalleryComponent = () => {
         (_, result) => {
           const { rows } = result;
           if (rows && rows.length > 0) {
-            const photos = rows._array.map(item => item.uri);
+            const photos = rows._array.map(item => ({
+              uri: item.uri,
+              latitude: item.latitude,
+              longitude: item.longitude,
+            }));
             setPhotosList(photos);
           }
         },
         (_, error) => console.error('Error fetching photos:', error)
       );
     });
-  }, []);
-
-  const handleImagePress = (item) => {
-    setPhoto({ uri: item });
-    setShowGallery(true);
   };
 
+  useFocusEffect(() => {
+    fetchPhotosFromDatabase();
+  });
+
+  const handleImagePress = (item) => {
+    setPhoto(item);
+    setShowGallery(true);
+  };
   const handleDeletePhoto = (item) => {
     // Delete the photo from the file system
     FileSystem.deleteAsync(item)
@@ -77,14 +83,29 @@ const GalleryComponent = () => {
     navigation.navigate('Camera');
   };
 
-  const renderGalleryItem = ({ item }) => (
-    <View style={styles.galleryItemContainer}>
-      <TouchableOpacity onPress={() => handleImagePress(item)}>
-        <Image style={styles.galleryImage} source={{ uri: item }} />
-      </TouchableOpacity>
-    </View>
-  );
-
+  const renderGalleryItem = ({ item }) => {
+    if (!item.uri) {
+      console.error('Invalid URI:', item.uri);
+      return (
+        <View style={styles.galleryItemContainer}>
+          <Text>Error: Invalid Image URI</Text>
+        </View>
+      );
+    }
+  
+    return (
+      <View style={styles.galleryItemContainer}>
+        <TouchableOpacity onPress={() => handleImagePress(item)}>
+          <Image style={styles.galleryImage} source={{ uri: item.uri }} />
+        </TouchableOpacity>
+        <Text style={styles.imageLocationText}>
+          Latitude: {item.latitude.toFixed(2)}, Longitude: {item.longitude.toFixed(2)}
+        </Text>
+      </View>
+    );
+  };
+  
+  
   return (
     <View style={styles.container}>
       {photo && (
@@ -104,11 +125,11 @@ const GalleryComponent = () => {
       )}
 
       <View style={[styles.galleryContainer, { marginTop: 10 }]}>
-        <FlatList
-          data={photosList}
-          keyExtractor={(item, index) => index.toString()}
-          renderItem={renderGalleryItem}
-        />
+      <FlatList
+  data={photosList}
+  keyExtractor={(item, index) => index.toString()}
+  renderItem={renderGalleryItem}
+/>
       </View>
 
       <TouchableOpacity style={styles.customButton} onPress={handleOpenCamera}>
@@ -184,3 +205,5 @@ const styles = StyleSheet.create({
 });
 
 export default GalleryComponent;
+
+
