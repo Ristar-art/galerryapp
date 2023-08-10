@@ -22,17 +22,19 @@ const GalleryComponent = () => {
           if (rows && rows.length > 0) {
             const photos = rows._array.map(item => ({
               uri: item.uri,
-              latitude: item.latitude,
-              longitude: item.longitude,
+              location: item.location, // Retrieve the location address
             }));
             setPhotosList(photos);
+          } else {
+            setPhotosList([]); // Reset the list if no photos are found
           }
         },
         (_, error) => console.error('Error fetching photos:', error)
       );
     });
   };
-
+  
+  
   useFocusEffect(() => {
     fetchPhotosFromDatabase();
   });
@@ -98,12 +100,11 @@ const GalleryComponent = () => {
         <TouchableOpacity onPress={() => handleImagePress(item)}>
           <Image style={styles.galleryImage} source={{ uri: item.uri }} />
         </TouchableOpacity>
-        <Text style={styles.imageLocationText}>
-          Latitude: {item.latitude.toFixed(2)}, Longitude: {item.longitude.toFixed(2)}
-        </Text>
+        <Text style={styles.imageLocationText}>{item.location}</Text>
       </View>
     );
   };
+  
   
   
   return (
@@ -126,10 +127,10 @@ const GalleryComponent = () => {
 
       <View style={[styles.galleryContainer, { marginTop: 10 }]}>
       <FlatList
-  data={photosList}
-  keyExtractor={(item, index) => index.toString()}
-  renderItem={renderGalleryItem}
-/>
+         data={photosList}
+         keyExtractor={(item, index) => index.toString()}
+         renderItem={renderGalleryItem}
+         />
       </View>
 
       <TouchableOpacity style={styles.customButton} onPress={handleOpenCamera}>
